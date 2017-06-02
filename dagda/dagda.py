@@ -56,6 +56,9 @@ def main(parsed_args):
                          dagda_server_port=parsed_args.get_server_port(),
                          mongodb_host=parsed_args.get_mongodb_host(),
                          mongodb_port=parsed_args.get_mongodb_port(),
+                         mongodb_ssl=parsed_args.is_mongodb_ssl_enabled(),
+                         mongodb_user=parsed_args.get_mongodb_user(),
+                         mongodb_pass=parsed_args.get_mongodb_pass(),
                          falco_rules_filename=parsed_args.get_falco_rules_filename())
         ds.run()
 
@@ -73,12 +76,22 @@ def main(parsed_args):
                 if parsed_args.get_cve():
                     # Gets products by CVE
                     r = requests.get(dagda_base_url + '/vuln/cve/' + parsed_args.get_cve())
+                elif parsed_args.get_cve_info():
+                    # Gets CVE details
+                    r = requests.get(dagda_base_url + '/vuln/cve/' + parsed_args.get_cve_info() + '/details')
                 elif parsed_args.get_bid():
                     # Gets products by BID
                     r = requests.get(dagda_base_url + '/vuln/bid/' + str(parsed_args.get_bid()))
+                elif parsed_args.get_bid_info():
+                    # Gets BID details
+                    r = requests.get(dagda_base_url + '/vuln/bid/' + str(parsed_args.get_bid_info()) + '/details')
                 elif parsed_args.get_exploit_db_id():
                     # Gets products by Exploit DB Id
                     r = requests.get(dagda_base_url + '/vuln/exploit/' + str(parsed_args.get_exploit_db_id()))
+                elif parsed_args.get_exploit_db_info_id():
+                    # Gets Exploit details
+                    r = requests.get(dagda_base_url + '/vuln/exploit/' + str(parsed_args.get_exploit_db_info_id()) +
+                                     '/details')
                 else:
                     # Gets CVEs, BIDs and Exploit_DB Ids by product and version
                     if not parsed_args.get_product_version():

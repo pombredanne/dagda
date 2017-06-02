@@ -55,17 +55,17 @@ class SysdigFalcoMonitor:
     # Pre check for Sysdig falco container
     def pre_check(self):
         # Init
-        linux_distro = platform.linux_distribution()[0]
+        linux_distro = self._get_linux_distro()
         uname_r = os.uname().release
 
         # Check requirements
         if not os.path.isfile('/.dockerenv'):  # I'm living in real world!
-            if 'Red Hat' == linux_distro or 'CentOS' == linux_distro or 'Fedora' == linux_distro \
-                    or 'openSUSE' == linux_distro:
+            if 'Red Hat' in linux_distro or 'CentOS' in linux_distro or 'Fedora' in linux_distro \
+                    or 'openSUSE' in linux_distro:
                 # Red Hat/CentOS/Fedora/openSUSE
                 return_code = subprocess.call(["rpm", "-q", "kernel-devel-" + uname_r],
                                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            elif 'Debian' == linux_distro or 'Ubuntu' == linux_distro:
+            elif 'Debian' in linux_distro or 'Ubuntu' in linux_distro:
                 # Debian/Ubuntu
                 return_code = subprocess.call(["dpkg", "-l", "linux-headers-" + uname_r],
                                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -78,6 +78,10 @@ class SysdigFalcoMonitor:
             DagdaLogger.get_logger().warning("I'm running inside a docker container, so I can't check if the kernel "
                                              "headers are installed in the host operating system. Please, review it!!")
 
+        # Check Docker driver
+        if self.docker_driver.get_docker_client() is None:
+            raise DagdaError('Error while fetching Docker server API version.')
+
         # Docker pull for ensuring the sysdig/falco image
         self.docker_driver.docker_pull('sysdig/falco')
 
@@ -86,6 +90,7 @@ class SysdigFalcoMonitor:
         if len(container_ids) > 0:
             for container_id in container_ids:
                 self.docker_driver.docker_stop(container_id)
+                self.docker_driver.docker_remove_container(container_id)
 
         # Cleans mongodb falco_events collection
         self.mongodb_driver.delete_falco_events_collection()
@@ -99,6 +104,8 @@ class SysdigFalcoMonitor:
             self.docker_driver.docker_stop(self.running_container_id)
         else:
             raise DagdaError('Runtime error opening device /host/dev/sysdig0.')
+        # Clean up
+        self.docker_driver.docker_remove_container(self.running_container_id)
 
     # Runs SysdigFalcoMonitor
     def run(self):
@@ -140,7 +147,7 @@ class SysdigFalcoMonitor:
                             sysdig_falco_events.append(json_data)
                         except IndexError:
                             # The /tmp/falco_output.json file had information about ancient events, so nothing to do
-                            None
+                            pass
                 last_file_position = fbuf.tell()
                 if len(sysdig_falco_events) > 0:
                     self.mongodb_driver.bulk_insert_sysdig_falco_events(sysdig_falco_events)
@@ -193,3 +200,12 @@ class SysdigFalcoMonitor:
                         DagdaLogger.get_logger().warning(warning.strip())
                     warning = ''
                 warning+=' ' + line
+
+    # Avoids the "platform.linux_distribution()" method which is deprecated in Python 3.5
+    def _get_linux_distro(self):
+        with open('/etc/os-release', 'r') as f:
+            lines = f.readlines()
+        for line in lines:
+            if line.startswith('NAME='):
+                name = line.replace('NAME=', '').replace("\n", '').replace("'", '').replace('"', '')
+                return name

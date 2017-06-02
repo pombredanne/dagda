@@ -53,11 +53,12 @@ class DagdaServer:
 
     # DagdaServer Constructor
     def __init__(self, dagda_server_host='127.0.0.1', dagda_server_port=5000, mongodb_host='127.0.0.1',
-                 mongodb_port=27017, falco_rules_filename=None):
+                 mongodb_port=27017, mongodb_ssl=False, mongodb_user=None, mongodb_pass=None,
+                 falco_rules_filename=None):
         super(DagdaServer, self).__init__()
         self.dagda_server_host = dagda_server_host
         self.dagda_server_port = dagda_server_port
-        InternalServer.set_mongodb_driver(mongodb_host, mongodb_port)
+        InternalServer.set_mongodb_driver(mongodb_host, mongodb_port, mongodb_ssl, mongodb_user, mongodb_pass)
         self.sysdig_falco_monitor = SysdigFalcoMonitor(InternalServer.get_docker_driver(),
                                                        InternalServer.get_mongodb_driver(),
                                                        falco_rules_filename)
@@ -77,7 +78,7 @@ class DagdaServer:
                         self._check_docker_by_container_id(item)
             except KeyboardInterrupt:
                 # Pressed CTRL+C to quit, so nothing to do
-                None
+                pass
         else:
             sysdig_falco_monitor_pid = os.fork()
             if sysdig_falco_monitor_pid == 0:
@@ -90,6 +91,8 @@ class DagdaServer:
                 except KeyboardInterrupt:
                     # Pressed CTRL+C to quit
                     InternalServer.get_docker_driver().docker_stop(self.sysdig_falco_monitor.get_running_container_id())
+                    InternalServer.get_docker_driver().docker_remove_container(
+                        self.sysdig_falco_monitor.get_running_container_id())
             else:
                 DagdaServer.app.run(debug=False, host=self.dagda_server_host, port=self.dagda_server_port)
 
