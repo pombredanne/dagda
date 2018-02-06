@@ -22,11 +22,13 @@ import gzip
 import re
 import requests
 import zlib
-import xml.etree.ElementTree as ET
+import defusedxml.ElementTree as ET
 from zipfile import ZipFile
 import os
 from io import BytesIO
 import datetime
+import tarfile
+
 
 ACCESS_VECTOR = {'L': 'Local access', 'A': 'Adjacent Network', 'N': 'Network'}
 ACCESS_COMPLEXITY = {'H': 'High', 'M': 'Medium', 'L': 'Low'}
@@ -46,8 +48,8 @@ def get_http_resource_content(url):
 
 
 # Extract vector from CVE
-def extract_vector(initialVector):
-    new_vector = initialVector[1:-1].split('/')
+def extract_vector(initial_vector):
+    new_vector = initial_vector[1:-1].split('/')
     final_vector = []
     for i in range(len(new_vector)):
         final_vector.append(FEATURES_LIST[i][new_vector[i][-1]])
@@ -176,9 +178,12 @@ def get_exploit_db_list_from_csv(csv_content):
                     details = {}
                     details['exploit_db_id'] = int(splitted_line[0])
                     details['description'] = splitted_line[2][1:len(splitted_line[2]) - 1]
-                    details['platform'] = splitted_line[5] if splitted_line[5] is not None else ''
-                    details['type'] = splitted_line[6] if splitted_line[6] is not None else ''
-                    details['port'] = int(splitted_line[7]) if splitted_line[7] is not None else 0
+                    details['platform'] = splitted_line[6] if splitted_line[6] is not None else ''
+                    details['type'] = splitted_line[5] if splitted_line[5] is not None else ''
+                    try:
+                        details['port'] = int(splitted_line[7])
+                    except ValueError:
+                        details['port'] = 0
                     exploits_details.append(details)
     # Return
     return list(items), exploits_details
@@ -187,29 +192,11 @@ def get_exploit_db_list_from_csv(csv_content):
 # Gets BugTraq lists from gz file
 def get_bug_traqs_lists_from_file(compressed_file):
     decompressed_file = gzip.GzipFile(fileobj=compressed_file)
-    items = set()
-    output_array = []
-    extended_info_array = []
-    for line in decompressed_file.readlines():
-        try:
-            json_data = json.loads(line.decode("utf-8"))
-            parse_bid_from_json(json_data, items)
-            del json_data['vuln_products']
-            extended_info_array.append(json_data)
-        except:
-            pass
-        # Bulk insert
-        if len(items) > 8000:
-            output_array.append(list(items))
-            items = set()
-    # Final bulk insert
-    if len(items) > 0:
-        output_array.append(list(items))
-    # Return
-    return output_array, extended_info_array
+    bid_list = [line.decode("utf-8") for line in decompressed_file.readlines()]
+    return get_bug_traqs_lists_from_online_mode(bid_list)
 
 
-# Gets BugTraq lists from gz file
+# Gets BugTraq lists from online mode
 def get_bug_traqs_lists_from_online_mode(bid_list):
     items = set()
     output_array = []
@@ -220,7 +207,8 @@ def get_bug_traqs_lists_from_online_mode(bid_list):
             parse_bid_from_json(json_data, items)
             del json_data['vuln_products']
             extended_info_array.append(json_data)
-        except:
+        except (TypeError, ValueError):
+            # It is not a JSON format so the line is ignored
             pass
         # Bulk insert
         if len(items) > 8000:
@@ -249,3 +237,93 @@ def parse_bid_from_json(json_data, items):
                 item = str(bugtraq_id) + "#" + product.lower() + "#" + str(version)
                 if item not in items:
                     items.add(item)
+
+
+# Gets RHSA (Red Hat Security Advisory) and RHBA (Red Hat Bug Advisory) lists from bz2 file
+def get_rhsa_and_rhba_lists_from_file(bz2_file):
+    # Init
+    tar = tarfile.open(mode='r:bz2', fileobj=BytesIO(bz2_file))
+    rhsa_list = []
+    rhsa_id_list = []
+    rhba_list = []
+    rhba_id_list = []
+    rhsa_info_list = []
+    rhsa_info_id_list = []
+    rhba_info_list = []
+    rhba_info_id_list = []
+    for xml_file in tar.getmembers():
+        if xml_file.size > 0:
+            xml_file_content = tar.extractfile(xml_file.name)
+            root = ET.parse(xml_file_content).getroot().find('{http://oval.mitre.org/XMLSchema/oval-definitions-5}definitions')
+            for entry in root.findall('{http://oval.mitre.org/XMLSchema/oval-definitions-5}definition'):
+                # Init
+                metadata = entry.find('{http://oval.mitre.org/XMLSchema/oval-definitions-5}metadata')
+                detail_info = {}
+
+                # Get IDs
+                rhsa_id = None
+                rhba_id = None
+                cves = []
+                for reference in metadata.findall("{http://oval.mitre.org/XMLSchema/oval-definitions-5}reference"):
+                    # Get RHSA (Red Hat Security Advisory)
+                    if reference.attrib['source'] == 'RHSA':
+                        rhsa_id = reference.attrib['ref_id']
+                        rhsa_id = rhsa_id[:rhsa_id.index("-", 5)]
+                    # RHBA (Red Hat Bug Advisory)
+                    if reference.attrib['source'] == 'RHBA':
+                        rhba_id = reference.attrib['ref_id']
+                        rhba_id = rhba_id[:rhba_id.index("-", 5)]
+                    # Get related CVEs
+                    if reference.attrib['source'] == 'CVE':
+                        cves.append(reference.attrib['ref_id'])
+
+                detail_info['cve'] = cves
+
+                # Get title and description
+                detail_info['title'] = metadata.findtext('{http://oval.mitre.org/XMLSchema/oval-definitions-5}title')
+                detail_info['description'] = metadata.findtext('{http://oval.mitre.org/XMLSchema/oval-definitions-5}description')
+
+                # Get severity
+                detail_info['severity'] = metadata.find("{http://oval.mitre.org/XMLSchema/oval-definitions-5}advisory") \
+                                                    .find("{http://oval.mitre.org/XMLSchema/oval-definitions-5}severity").text
+                # Append detail info
+                if rhsa_id is not None:
+                    detail_info['rhsa_id'] = rhsa_id
+                    if rhsa_id not in rhsa_info_id_list:
+                        rhsa_info_id_list.append(rhsa_id)
+                        rhsa_info_list.append(detail_info)
+                if rhba_id is not None:
+                    detail_info['rhba_id'] = rhba_id
+                    if rhba_id not in rhba_info_id_list:
+                        rhba_info_id_list.append(rhba_id)
+                        rhba_info_list.append(detail_info)
+
+                # Get vulnerable products
+                affected_cpe_list = metadata.find("{http://oval.mitre.org/XMLSchema/oval-definitions-5}advisory") \
+                                            .find("{http://oval.mitre.org/XMLSchema/oval-definitions-5}affected_cpe_list")
+                for cpe in affected_cpe_list:
+                    info_item = {}
+                    splitted_product = cpe.text.split(":")
+                    info_item['vendor'] = splitted_product[2]
+                    info_item['product'] = splitted_product[3]
+                    try:
+                        info_item['version'] = splitted_product[4]
+                    except IndexError:
+                        info_item['version'] = '-'
+
+                    tmp = '#' + info_item['vendor'] + '#' + info_item['product'] + '#' + info_item['version']
+                    if rhsa_id is not None:
+                        info_item['rhsa_id'] = rhsa_id
+                        tmp = rhsa_id + tmp
+                        if tmp not in rhsa_id_list:
+                            rhsa_id_list.append(tmp)
+                            rhsa_list.append(info_item)
+                    if rhba_id is not None:
+                        info_item['rhba_id'] = rhba_id
+                        tmp = rhba_id + tmp
+                        if tmp not in rhba_id_list:
+                            rhba_id_list.append(tmp)
+                            rhba_list.append(info_item)
+
+    # Return
+    return rhsa_list, rhba_list, rhsa_info_list, rhba_info_list

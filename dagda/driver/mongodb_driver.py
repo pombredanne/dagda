@@ -43,7 +43,7 @@ class MongoDbDriver:
 
     # -- Inserting and bulk inserting methods
 
-    # Bulk insert the cve list with the next format: <CVE-ID>#<vendor>#<product>#<version>
+    # Bulk insert the cve list with the next format: <CVE-ID>#<vendor>#<product>#<version>#<year>
     def bulk_insert_cves(self, cve_list):
         products = []
         for product in cve_list:
@@ -107,6 +107,37 @@ class MongoDbDriver:
         # Bulk insert
         self.db.exploit_db_info.create_index([('exploit_db_id', pymongo.DESCENDING)])
         self.db.exploit_db_info.insert_many(exploit_db_info_list)
+
+    # Bulk insert the rhsa list
+    def bulk_insert_rhsa(self, rhsa_list):
+        # Bulk insert
+        self.db.rhsa.create_index([('product', pymongo.DESCENDING)])
+        self.db.rhsa.insert_many(rhsa_list)
+
+    # Bulk insert the rhba list
+    def bulk_insert_rhba(self, rhba_list):
+        # Bulk insert
+        self.db.rhba.create_index([('product', pymongo.DESCENDING)])
+        self.db.rhba.insert_many(rhba_list)
+
+    # Bulk insert the rhsa info list
+    def bulk_insert_rhsa_info(self, rhsa_info_list):
+        # Bulk insert
+        self.db.rhsa_info.create_index([('rhsa_id', pymongo.DESCENDING)])
+        self.db.rhsa_info.insert_many(rhsa_info_list)
+
+    # Bulk insert the rhba info list
+    def bulk_insert_rhba_info(self, rhba_info_list):
+        # Bulk insert
+        self.db.rhba_info.create_index([('rhba_id', pymongo.DESCENDING)])
+        self.db.rhba_info.insert_many(rhba_info_list)
+
+    # Bulk insert the docker daemon events
+    def bulk_insert_docker_daemon_events(self, events):
+        self.db.docker_events.create_index([('from', pymongo.DESCENDING)])
+        self.db.docker_events.create_index([('Action', pymongo.DESCENDING)])
+        self.db.docker_events.create_index([('Type', pymongo.DESCENDING)])
+        self.db.docker_events.insert_many(events)
 
     # Bulk insert the sysdig/falco events
     def bulk_insert_sysdig_falco_events(self, events):
@@ -176,6 +207,22 @@ class MongoDbDriver:
     def delete_bid_info_collection(self):
         self.db.bid_info.drop()
 
+    # Removes rhsa collection
+    def delete_rhsa_collection(self):
+        self.db.rhsa.drop()
+
+    # Removes rhsa info collection
+    def delete_rhsa_info_collection(self):
+        self.db.rhsa_info.drop()
+
+    # Removes rhba collection
+    def delete_rhba_collection(self):
+        self.db.rhba.drop()
+
+    # Removes rhba info collection
+    def delete_rhba_info_collection(self):
+        self.db.rhba_info.drop()
+
     # Removes falco_events collection
     def delete_falco_events_collection(self):
         self.db.falco_events.drop()
@@ -190,6 +237,26 @@ class MongoDbDriver:
             last_bid = self.db.bid.find({}, {'product': 0, 'version': 0, '_id': 0})\
                                   .sort('bugtraq_id', pymongo.DESCENDING).limit(1)
             return last_bid[0]['bugtraq_id']
+
+    # Gets docker daemon events
+    def get_docker_events_daemon(self, op_from=None, op_action=None, op_type=None):
+        # Init
+        query = {}
+        if op_from is not None:
+            query['from'] = op_from
+        if op_action is not None:
+            query['Action'] = op_action
+        if op_type is not None:
+            query['Type'] = op_type
+        # Perform the query
+        cursor = self.db.docker_events.find(query, {'_id': 0}).sort("timeNano", pymongo.DESCENDING)
+        # Prepare output
+        events = []
+        for event in cursor:
+            if event is not None:
+                events.append(event)
+        # Return
+        return events
 
     # Gets the product vulnerabilities
     def get_vulnerabilities(self, product, version=None):
@@ -206,6 +273,12 @@ class MongoDbDriver:
             exploit_db_cursor = self.db.exploit_db.find({'$text': {'$search': filt_prod, '$language': 'none'}},
                                                         {'product': 0, 'version': 0, '_id': 0})\
                                                   .sort("exploit_db_id", pymongo.ASCENDING)
+            # Gets RHSAs
+            rhsa_cursor = self.db.rhsa.find({'product': product}, {'product': 0, 'version': 0, '_id': 0}) \
+                                      .sort("rhsa_id", pymongo.ASCENDING)
+            # Gets RHBAs
+            rhba_cursor = self.db.rhba.find({'product': product}, {'product': 0, 'version': 0, '_id': 0}) \
+                                      .sort("rhba_id", pymongo.ASCENDING)
         else:
             # Gets CVEs
             cve_cursor = self.db.cve.find({'product': product, 'version': version},
@@ -220,12 +293,22 @@ class MongoDbDriver:
                                                          'version': version},
                                                         {'product': 0, 'version': 0, '_id': 0})\
                                                   .sort("exploit_db_id", pymongo.ASCENDING)
+            # Gets RHSAs
+            rhsa_cursor = self.db.rhsa.find({'product': product, 'version': version}, \
+                                            {'product': 0, 'version': 0, '_id': 0}) \
+                                      .sort("rhsa_id", pymongo.ASCENDING)
+            # Gets RHBAs
+            rhba_cursor = self.db.rhba.find({'product': product, 'version': version}, \
+                                            {'product': 0, 'version': 0, '_id': 0}) \
+                                    .sort("rhba_id", pymongo.ASCENDING)
+
         # Prepare output
         output = []
+        included_cve = []
         for cve in cve_cursor:
             if cve is not None:
                 cve_temp = cve['cve_id']
-                if cve_temp not in output:
+                if cve_temp not in included_cve:
                     info = {}
                     cve_info = {}
                     cve_data = self.db.cve_info.find_one({'cveid': cve_temp})
@@ -237,10 +320,12 @@ class MongoDbDriver:
                         del cve_info["_id"]
                     info[cve_temp] = cve_info
                     output.append(info)
+                    included_cve.append(cve['cve_id'])
+        included_bid = []
         for bid in bid_cursor:
             if bid is not None:
                 bid_tmp = 'BID-' + str(bid['bugtraq_id'])
-                if bid_tmp not in output:
+                if bid_tmp not in included_bid:
                     info = {}
                     bid_info = {}
                     bid_data = self.db.bid_info.find_one({'bugtraq_id': bid['bugtraq_id']})
@@ -250,10 +335,12 @@ class MongoDbDriver:
                         del bid_info["_id"]
                     info[bid_tmp] = bid_info
                     output.append(info)
+                    included_bid.append(bid_tmp)
+        included_exploit = []
         for exploit_db in exploit_db_cursor:
             if exploit_db is not None:
                 exploit_db_tmp = 'EXPLOIT_DB_ID-' + str(exploit_db['exploit_db_id'])
-                if exploit_db_tmp not in output:
+                if exploit_db_tmp not in included_exploit:
                     info = {}
                     exploit_db_info = {}
                     exploit_data = self.db.exploit_db_info.find_one({'exploit_db_id': exploit_db['exploit_db_id']})
@@ -263,6 +350,37 @@ class MongoDbDriver:
                         del exploit_db_info["_id"]
                     info[exploit_db_tmp] = exploit_db_info
                     output.append(info)
+                    included_exploit.append(exploit_db_tmp)
+        included_rhsa = []
+        for rhsa in rhsa_cursor:
+            if rhsa is not None:
+                rhsa_temp = rhsa['rhsa_id']
+                if rhsa_temp not in included_rhsa:
+                    info = {}
+                    rhsa_info = {}
+                    rhsa_data = self.db.rhsa_info.find_one({'rhsa_id': rhsa['rhsa_id']})
+                    if rhsa_data is not None:
+                        # delte objectid
+                        rhsa_info = rhsa_data.copy()
+                        del rhsa_info["_id"]
+                    info[rhsa_temp] = rhsa_info
+                    output.append(info)
+                    included_rhsa.append(rhsa_temp)
+        included_rhba = []
+        for rhba in rhba_cursor:
+            if rhba is not None:
+                rhba_temp = rhba['rhba_id']
+                if rhba_temp not in included_rhba:
+                    info = {}
+                    rhba_info = {}
+                    rhba_data = self.db.rhba_info.find_one({'rhba_id': rhba['rhba_id']})
+                    if rhba_data is not None:
+                        # delte objectid
+                        rhba_info = rhba_data.copy()
+                        del rhba_info["_id"]
+                    info[rhba_temp] = rhba_info
+                    output.append(info)
+                    included_rhsa.append(rhba_temp)
         # Return
         return output
 
@@ -294,6 +412,30 @@ class MongoDbDriver:
     def get_products_by_exploit_db_id(self, exploit_db_id):
         cursor = self.db.exploit_db.find({'exploit_db_id': exploit_db_id}, {'exploit_db_id': 0, '_id': 0}).sort(
             [("product", pymongo.ASCENDING), ("version", pymongo.ASCENDING)])
+        # Prepare output
+        output = []
+        for product in cursor:
+            if product is not None:
+                output.append(product)
+        # Return
+        return output
+
+    # Gets products by RHSA
+    def get_products_by_rhsa(self, rhsa):
+        cursor = self.db.rhsa.find({'rhsa_id': rhsa}, {'rhsa_id': 0, '_id': 0}).sort([("product", pymongo.ASCENDING),
+                                                                                      ("version", pymongo.ASCENDING)])
+        # Prepare output
+        output = []
+        for product in cursor:
+            if product is not None:
+                output.append(product)
+        # Return
+        return output
+
+    # Gets products by RHBA
+    def get_products_by_rhba(self, rhba):
+        cursor = self.db.rhba.find({'rhba_id': rhba}, {'rhba_id': 0, '_id': 0}).sort([("product", pymongo.ASCENDING),
+                                                                                      ("version", pymongo.ASCENDING)])
         # Prepare output
         output = []
         for product in cursor:
@@ -335,6 +477,32 @@ class MongoDbDriver:
     def get_exploit_info_by_id(self, exploit_db_id):
         cursor = self.db.exploit_db_info.find({'exploit_db_id': exploit_db_id}).sort(
             [("exploit_db_id", pymongo.ASCENDING)])
+        # Prepare output
+        output = []
+        for info in cursor:
+            if info is not None:
+                # delete objectid
+                del info['_id']
+                output.append(info)
+        # Return
+        return output
+
+    # Gets RHSA description by id
+    def get_rhsa_info_by_id(self, rhsa_id):
+        cursor = self.db.rhsa_info.find({'rhsa_id': rhsa_id}).sort([("rhsa_id", pymongo.ASCENDING)])
+        # Prepare output
+        output = []
+        for info in cursor:
+            if info is not None:
+                # delete objectid
+                del info['_id']
+                output.append(info)
+        # Return
+        return output
+
+    # Gets RHBA description by id
+    def get_rhba_info_by_id(self, rhba_id):
+        cursor = self.db.rhba_info.find({'rhba_id': rhba_id}).sort([("rhba_id", pymongo.ASCENDING)])
         # Prepare output
         output = []
         for info in cursor:
@@ -393,6 +561,7 @@ class MongoDbDriver:
                     report['status'] = 'Unknown'
 
                 report['start_date'] = str(datetime.datetime.utcfromtimestamp(scan['timestamp']))
+                report['malware_bins'] = 0
                 report['os_vulns'] = 0
                 report['libs_vulns'] = 0
                 report['anomalies'] = 0
@@ -401,6 +570,8 @@ class MongoDbDriver:
                 if 'static_analysis' in scan:
                     if 'os_packages' in scan['static_analysis']:
                         report['os_vulns'] = scan['static_analysis']['os_packages']['vuln_os_packages']
+                    if 'malware_binaries' in scan['static_analysis']:
+                        report['malware_bins'] = len(scan['static_analysis']['malware_binaries'])
                     if 'prog_lang_dependencies' in scan['static_analysis']:
                         report['libs_vulns'] = scan['static_analysis']['prog_lang_dependencies']['vuln_dependencies']
 
@@ -416,6 +587,76 @@ class MongoDbDriver:
                 output.append(report)
         # Return
         return output
+
+    # Check if product vulnerability was tagged as false positive
+    def is_fp(self, image_name, product, version=None):
+        cursor = self.db.image_history.find({'image_name': image_name}).sort("timestamp", pymongo.DESCENDING)
+        for scan in cursor:
+            if scan is not None and 'status' in scan and 'Completed' in scan['status'] and 'static_analysis' in scan:
+                # OS packages
+                if 'os_packages' in scan['static_analysis']:
+                    for p in scan['static_analysis']['os_packages']['os_packages_details']:
+                        if p['product'] == product and (version is None or p['version'] == version):
+                            if 'is_false_positive' in p and p['is_false_positive']:
+                                return True
+
+                # Dependencies
+                if 'prog_lang_dependencies' in scan['static_analysis'] and \
+                        scan['static_analysis']['prog_lang_dependencies']['dependencies_details'] is not None:
+                    for language in ['java', 'python', 'nodejs', 'js', 'ruby', 'php']:
+                        if scan['static_analysis']['prog_lang_dependencies']['dependencies_details']\
+                                [language] is not None:
+                            for p in scan['static_analysis']['prog_lang_dependencies']['dependencies_details']\
+                                    [language]:
+                                if p['product'] == product and (version is None or p['version'] == version):
+                                    if 'is_false_positive' in p and p['is_false_positive']:
+                                        return True
+                break
+
+        # Default
+        return False
+
+    # Update product vulnerability as false positive
+    def update_product_vulnerability_as_fp(self, image_name, product, version=None):
+        cursor = self.db.image_history.find({'image_name': image_name}).sort("timestamp", pymongo.DESCENDING)
+        updated = False
+        for scan in cursor:
+            if scan is not None and 'status' in scan and 'Completed' in scan['status'] and 'static_analysis' in scan:
+                # OS packages
+                if 'os_packages' in scan['static_analysis']:
+                    updated_products = 0
+                    for p in scan['static_analysis']['os_packages']['os_packages_details']:
+                        if p['product'] == product and (version is None or p['version'] == version):
+                            if not p['is_false_positive']:
+                                p['is_false_positive'] = True
+                                updated_products += 1
+                                updated = True
+                    scan['static_analysis']['os_packages']['vuln_os_packages'] -= updated_products
+                    scan['static_analysis']['os_packages']['ok_os_packages'] += updated_products
+
+                # Dependencies
+                if 'prog_lang_dependencies' in scan['static_analysis'] and \
+                        scan['static_analysis']['prog_lang_dependencies']['dependencies_details'] is not None:
+                    updated_dependencies = 0
+                    for language in ['java', 'python', 'nodejs', 'js', 'ruby', 'php']:
+                        if scan['static_analysis']['prog_lang_dependencies']['dependencies_details']\
+                                [language] is not None:
+                            for p in scan['static_analysis']['prog_lang_dependencies']['dependencies_details']\
+                                    [language]:
+                                if p['product'] == product and (version is None or p['version'] == version):
+                                    if not p['is_false_positive']:
+                                        p['is_false_positive'] = True
+                                        updated_dependencies += 1
+                                        updated = True
+                    scan['static_analysis']['prog_lang_dependencies']['vuln_dependencies'] -= \
+                                                                                            updated_dependencies
+
+                # Update collection
+                self.db.image_history.update({'_id': scan['_id']}, scan)
+                break
+
+        # Return if the scan was updated or not
+        return updated
 
     # Gets the init db process status
     def get_init_db_process_status(self):

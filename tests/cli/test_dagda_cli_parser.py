@@ -21,6 +21,8 @@ import sys
 import unittest
 
 from cli.dagda_cli_parser import DagdaCLIParser
+from cli.dagda_cli_parser import DagdaGlobalParser
+from cli.dagda_cli_parser import dagda_global_parser_text
 
 
 # -- Test suite
@@ -66,3 +68,31 @@ class DagdaCLIParserTestSuite(unittest.TestCase):
         self.assertEqual(parsed_args.get_extra_args().get_server_port(), 5555)
         self.assertEqual(parsed_args.get_extra_args().get_mongodb_host(), None)
         self.assertEqual(parsed_args.get_extra_args().get_mongodb_port(), None)
+
+    def test_dagda_agent_full_happy_path(self):
+        sys.argv = ['dagda.py', 'agent', 'localhost:5000', '-i', 'alpine']
+        parsed_args = DagdaCLIParser()
+        self.assertEqual(parsed_args.get_command(), 'agent')
+        self.assertEqual(parsed_args.get_extra_args().get_dagda_server(), 'localhost:5000')
+        self.assertEqual(parsed_args.get_extra_args().get_docker_image_name(), 'alpine')
+        self.assertEqual(parsed_args.get_extra_args().get_container_id(), None)
+
+    def test_dagda_docker_happy_path(self):
+        sys.argv = ['dagda.py', 'docker', 'images', ]
+        parsed_args = DagdaCLIParser()
+        self.assertEqual(parsed_args.get_command(), 'docker')
+        self.assertEqual(parsed_args.get_extra_args().get_command(), 'images')
+
+    def test_check_exit_2(self):
+        sys.argv = ['dagda.py', 'fake']
+        with self.assertRaises(SystemExit) as cm:
+            DagdaCLIParser()
+        self.assertEqual(cm.exception.code, 2)
+
+    def test_DagdaGlobalParser_exit_2(self):
+        with self.assertRaises(SystemExit) as cm:
+            DagdaGlobalParser().error("fail")
+        self.assertEqual(cm.exception.code, 2)
+
+    def test_DagdaGlobalParser_format_help(self):
+        self.assertEqual(DagdaGlobalParser().format_help(), dagda_global_parser_text)

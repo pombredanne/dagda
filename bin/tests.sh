@@ -2,9 +2,18 @@
 
 BASEDIR=`dirname $0`/..
 
+#########################################
+# Unit tests for Coveralls statistics
+#########################################
+
+echo -e "\n>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>"
+echo    ">> Running unit tests...    >>"
+echo -e ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>\n"
+
 echo "Testing on python system: `python3 --version`"
 TEST_DIR=${BASEDIR}/env-test
 
+# Prepare Virtual-env
 echo "$TEST_DIR"
 if [ ! -d "$TEST_DIR" ]; then
     python3 -m venv $TEST_DIR
@@ -17,15 +26,10 @@ if [ ! -d "$TEST_DIR" ]; then
     pip install pytest-cov
 fi
 
+# Run unit tests
 py.test --cov-report term:skip-covered --cov=dagda tests/
 
-# Clean up all processes in the current process group
-list_orphans ()
-{
-    local orphans=$(ps -ef | grep 'py.test --cov-report term:skip-covered --cov=dagda tests/' |
-                    grep -v 'grep' | awk '{print $2}')
+echo -e "\n<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<"
+echo    "<< End unit tests.          <<"
+echo -e "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n"
 
-    echo "$orphans"
-}
-
-kill $(list_orphans)

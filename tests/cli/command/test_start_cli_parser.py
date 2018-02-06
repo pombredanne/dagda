@@ -20,7 +20,11 @@
 import unittest
 import os
 import sys
+import tempfile
+import shutil
 from cli.command.start_cli_parser import StartCLIParser
+from cli.command.start_cli_parser import DagdaStartParser
+from cli.command.start_cli_parser import start_parser_text
 
 
 # -- Test suite
@@ -28,44 +32,58 @@ from cli.command.start_cli_parser import StartCLIParser
 class StartCLIParserTestCase(unittest.TestCase):
 
     def test_ok_empty_args(self):
-        args = generate_args(None, None, None, None, False, None, None, None)
+        args = generate_args(None, None, None, None, False, None, None, None, None)
         status = StartCLIParser.verify_args(args)
         self.assertEqual(status, 0)
 
     def test_ok_server_ports(self):
-        args = generate_args(None, 5555, None, 27017, False, None, None, None)
+        args = generate_args(None, 5555, None, 27017, False, None, None, None, None)
         status = StartCLIParser.verify_args(args)
         self.assertEqual(status, 0)
 
     def test_fail_server_port(self):
-        args = generate_args(None, 65536, None, None, False, None, None, None)
+        args = generate_args(None, 65536, None, None, False, None, None, None, None)
         status = StartCLIParser.verify_args(args)
         self.assertEqual(status, 1)
 
     def test_fail_mongodb_port(self):
-        args = generate_args(None, None, None, 65536, False, None, None, None)
+        args = generate_args(None, None, None, 65536, False, None, None, None, None)
         status = StartCLIParser.verify_args(args)
         self.assertEqual(status, 2)
 
     def test_fail_only_mongodb_user(self):
-        args = generate_args(None, None, None, None, False, 'admin', None, None)
+        args = generate_args(None, None, None, None, False, 'admin', None, None, None)
         status = StartCLIParser.verify_args(args)
         self.assertEqual(status, 3)
 
     def test_fail_only_mongodb_pass(self):
-        args = generate_args(None, None, None, None, False, None, '1234', None)
+        args = generate_args(None, None, None, None, False, None, '1234', None, None)
         status = StartCLIParser.verify_args(args)
         self.assertEqual(status, 4)
 
     def test_fail_falco_rules(self):
-        filename = '/tmp/fail_falco_rules'
+        temporary_dir = tempfile.mkdtemp()
+        filename = temporary_dir + '/fail_falco_rules'
         with open(filename, 'a+') as f:
             f.write('{}$##')
             f.flush()
-        args = generate_args(None, None, None, None, False, None, None, open(filename, 'rb+'))
+        args = generate_args(None, None, None, None, False, None, None, open(filename, 'rb+'), None)
         status = StartCLIParser.verify_args(args)
         os.remove(filename)
+        shutil.rmtree(temporary_dir)
         self.assertEqual(status, 5)
+
+    def test_fail_external_falco(self):
+        temporary_dir = tempfile.mkdtemp()
+        filename = temporary_dir + '/fail_falco_rules'
+        with open(filename, 'a+') as f:
+            f.write('{}$##')
+            f.flush()
+        args = generate_args(None, None, None, None, False, None, None, open(filename, 'rb+'), open(filename, 'rb+'))
+        status = StartCLIParser.verify_args(args)
+        os.remove(filename)
+        shutil.rmtree(temporary_dir)
+        self.assertEqual(status, 6)
 
     def test_start_full_happy_path(self):
         sys.argv = ['dagda.py', 'start', '-s', '127.0.0.1', '-p', '5000', '-m', '127.0.0.1', '-mp', '27017']
@@ -79,14 +97,34 @@ class StartCLIParserTestCase(unittest.TestCase):
         self.assertIsNone(parsed_args.get_mongodb_pass())
         self.assertIsNone(parsed_args.get_falco_rules_filename())
 
+    def test_check_falco_rules_file(self):
+        sys.argv = ['dagda.py', 'start', '--falco_rules_file', './tests/mock_files/falco_rules.yaml']
+        args = StartCLIParser()
+        self.assertEqual(args.get_falco_rules_filename(), './tests/mock_files/falco_rules.yaml')
+
+    def test_check_exit_1(self):
+        sys.argv = ['dagda.py', 'start', '-p', '-1']
+        with self.assertRaises(SystemExit) as cm:
+            StartCLIParser()
+        self.assertEqual(cm.exception.code, 1)
+
+    def test_DagdaStartParser_exit_2(self):
+        with self.assertRaises(SystemExit) as cm:
+            DagdaStartParser().error("fail")
+        self.assertEqual(cm.exception.code, 2)
+
+    def test_DagdaStartParser_format_help(self):
+        self.assertEqual(DagdaStartParser().format_help(), start_parser_text)
+
 
 # -- Util methods
 
 def generate_args(server_host, server_port, mongodb_host, mongodb_port, mongodb_ssl, mongodb_user, mongodb_pass,
-                  falco_rules_file):
+                  falco_rules_file, external_falco):
     return AttrDict([('server_host', server_host), ('server_port', server_port), ('mongodb_host', mongodb_host),
                      ('mongodb_port', mongodb_port), ('mongodb_ssl', mongodb_ssl), ('mongodb_user', mongodb_user),
-                     ('mongodb_pass', mongodb_pass), ('falco_rules_file', falco_rules_file)])
+                     ('mongodb_pass', mongodb_pass), ('falco_rules_file', falco_rules_file),
+                     ('external_falco', external_falco)])
 
 
 # -- Util classes

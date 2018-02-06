@@ -2,13 +2,15 @@
 [![Build Status](https://travis-ci.org/eliasgranderubio/dagda.svg?branch=master)](https://travis-ci.org/eliasgranderubio/dagda)
 [![Coverage Status](https://coveralls.io/repos/github/eliasgranderubio/dagda/badge.svg?branch=master)](https://coveralls.io/github/eliasgranderubio/dagda?branch=master)
 [![Python](https://img.shields.io/badge/python-3.3%2C%203.4%2C%203.5%2C%203.6-blue.svg)](https://github.com/eliasgranderubio/dagda)
+[![Docker Pulls](https://img.shields.io/docker/pulls/3grander/dagda.svg)](https://hub.docker.com/r/3grander/dagda/)
 [![License](https://img.shields.io/badge/license-Apache%202-blue.svg)](https://github.com/eliasgranderubio/dagda)
+[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Feliasgranderubio%2Fdagda.svg?type=shield)](https://app.fossa.io/projects/git%2Bgithub.com%2Feliasgranderubio%2Fdagda?ref=badge_shield)
 
-**Dagda** is a tool to perform static analysis of known vulnerabilities in docker images/containers and to monitor running docker containers for detecting anomalous activities.
+**Dagda** is a tool to perform static analysis of known vulnerabilities, trojans, viruses, malware & other malicious threats in docker images/containers and to monitor running docker containers for detecting anomalous activities.
 
-In order to fulfill its mission, first the known vulnerabilities as CVEs (Common Vulnerabilities and Exposures) and BIDs (Bugtraq IDs), and the known exploits from Offensive Security database are imported into a MongoDB to facilitate the search of these vulnerabilities and exploits when your analysis are in progress.
+In order to fulfill its mission, first the known vulnerabilities as CVEs (Common Vulnerabilities and Exposures), BIDs (Bugtraq IDs), RHSAs (Red Hat Security Advisories) and RHBAs (Red Hat Bug Advisories), and the known exploits from Offensive Security database are imported into a MongoDB to facilitate the search of these vulnerabilities and exploits when your analysis are in progress.
 
-Then, when you run a static analysis of known vulnerabilities, **Dagda** retrieves information about the software installed into your docker image, such as the OS packages and the dependencies of the programming languages, and verifies for each product and its version if it is free of vulnerabilities against the previously stored information into the MongoDB.
+Then, when you run a static analysis of known vulnerabilities, **Dagda** retrieves information about the software installed into your docker image, such as the OS packages and the dependencies of the programming languages, and verifies for each product and its version if it is free of vulnerabilities against the previously stored information into the MongoDB. Also, **Dagda** uses [ClamAV](https://www.clamav.net/) as antivirus engine for detecting trojans, viruses, malware & other malicious threats included within the docker images/containers.
 
 **Dagda** supports multiple Linux base images:
   * Red Hat/CentOS/Fedora
@@ -16,7 +18,7 @@ Then, when you run a static analysis of known vulnerabilities, **Dagda** retriev
   * OpenSUSE
   * Alpine
 
-Also, **Dagda** rests on [OWASP dependency check](https://github.com/jeremylong/DependencyCheck) + [Retire.js](https://github.com/retirejs/retire.js/) for analyzing multiple dependencies from:
+**Dagda** rests on [OWASP dependency check](https://github.com/jeremylong/DependencyCheck) + [Retire.js](https://github.com/retirejs/retire.js/) for analyzing multiple dependencies from:
   * java
   * python
   * nodejs
@@ -36,12 +38,13 @@ Finally, each analysis report of a docker image/container, included all static a
      * [Populating the database](#populating-the-database)
        * [Database contents](#database-contents)
      * [Analyzing docker images/containers](#analyzing-docker-imagescontainers)
-       * [Performing static analysis of known vulnerabilities](#performing-static-analysis-of-known-vulnerabilities)
+       * [Performing static analysis of known vulnerabilities and other malicious threats](#performing-static-analysis-of-known-vulnerabilities-and-other-malicious-threats)
        * [Monitoring running containers for detecting anomalous activities](#monitoring-running-containers-for-detecting-anomalous-activities)
      * [Bonus Track: Quick Start with Docker](#bonus-track-quick-start-with-docker)
    * [Troubleshooting](#troubleshooting)
    * [Change Log](#change-log)
    * [Bugs and Feedback](#bugs-and-feedback)
+   * [License](#license)
 
 ## Requirements
 Before **Dagda** usage, you must have installed the next requirements:
@@ -58,9 +61,10 @@ Before **Dagda** usage, you must have installed the next requirements:
   * Flask
   * Flask-cors
   * PyYAML
+  * Defusedxml
 
 The requirements can be installed with pip:
-```
+```bash
     sudo pip3 install -r requirements.txt
 ```
 
@@ -77,7 +81,7 @@ You must have installed MongoDB 2.4 or later for using **Dagda** because in Mong
 If you need instructions for MongoDB installation, see the [How-to install MongoDB Community Edition](https://docs.mongodb.com/manual/administration/install-community/) page.
 
 You can also run MongoDB using docker:
-```
+```bash
     docker pull mongo
     docker run -d -p 27017:27017 mongo
 ```
@@ -102,7 +106,7 @@ rmmod: ERROR: Module sysdig_probe is not currently loaded
 You must run `python3 dagda.py start` for starting the **Dagda** server. See the [*start* sub-command](https://github.com/eliasgranderubio/dagda/wiki/CLI-Usage#start-sub-command) in the wiki page for details.
 
 After the **Dagda** server started and before the **Dagda** CLI usage, you must set the next environment variables as you need:
-```
+```bash
     export DAGDA_HOST='127.0.0.1'
     export DAGDA_PORT=5000
 ```
@@ -112,7 +116,7 @@ Although in this usage documentation only the CLI usage is shown, **Dagda** has 
 ### Populating the database
 
 For the initial run, you need to populate the vulnerabilities and the exploits in the database by running:
-```
+```bash
     python3 dagda.py vuln --init
 ```
 The previous command can take several minutes for finishing so be patient.
@@ -120,12 +124,12 @@ The previous command can take several minutes for finishing so be patient.
 If you need repopulating your database for updating with the new vulnerabilities and exploits, you only need rerun the previous command.
 
 Also, you can run queries on your personal database with `dagda.py vuln`. A usage example would be the next one:
-```
+```bash
     python3 dagda.py vuln --product openldap --product_version 2.2.20
 ```
 
 The expected output for the previous query is shown below:
-```
+```json
     [
         {
             "CVE-2005-4442": {
@@ -337,11 +341,11 @@ The expected output for the previous query is shown below:
 ```
 
 For getting all information about a specific CVE, you must run the next command:
-```
+```bash
     python3 dagda.py vuln --cve_info CVE-2009-2890
 ```
 The expected output for the previous query is shown below:
-```
+```json
     [
         {
             "cveid": "CVE-2009-2890",
@@ -374,7 +378,7 @@ If you want to know more details about `dagda.py vuln`, type `python3 dagda.py v
 
 #### Database contents
 
-The database is called `vuln_database` and there are 6 collections:
+The database is called `vuln_database` and there are 10 collections:
 
 * cve (Common Vulnerabilities and Exposure items) - source NVD NIST
    * cve_info (Extends the information about CVE items)
@@ -382,21 +386,25 @@ The database is called `vuln_database` and there are 6 collections:
    * bid_info (Extends the information about BugTraqs Ids items)
 * exploit_db (Offensive Security - Exploit Database) - source [Offensive Security](https://github.com/offensive-security/exploit-database)
    * exploit_db_info (Extends the information about exploits)
+* rhba (Red Hat Bug Advisory) - source [OVAL definitions for Red Hat Enterprise Linux 3 and above](https://www.redhat.com/security/data/oval/)
+   * rhba_info (Extends the information about RHBAs)
+* rhsa (Red Hat Security Advisory) - source [OVAL definitions for Red Hat Enterprise Linux 3 and above](https://www.redhat.com/security/data/oval/)
+   * rhsa_info (Extends the information about RHSAs)
 
 ### Analyzing docker images/containers
 
-In the next subsections, both, performing static analysis of known vulnerabilities and monitoring running docker containers for detecting anomalous activities will be described in depth.
+In the next subsections, both, performing static analysis of known vulnerabilities, trojans, viruses, malware & other malicious threats and monitoring running docker containers for detecting anomalous activities will be described in depth.
 
-#### Performing static analysis of known vulnerabilities
-One of the main **Dagda** targets is perform the analysis of known vulnerabilities in docker images/containers, so if you want perform an analysis over a docker image/container, you must type:
-```
+#### Performing static analysis of known vulnerabilities and other malicious threats
+One of the main **Dagda** targets is perform the analysis of known vulnerabilities, trojans, viruses, malware & other malicious threats in docker images/containers, so if you want perform an analysis over a docker image/container, you must type:
+```bash
     python3 dagda.py check --docker_image jboss/wildfly
 ```
 See the [*check* sub-command](https://github.com/eliasgranderubio/dagda/wiki/CLI-Usage#check-sub-command) wiki page for details.
 
 
 The expected output for the previous command will be the next one. In this output, **Dagda** responses with the analysis `id`.
-```
+```json
     {
         "id": "58667994ed253915723c50e7",
         "msg": "Accepted the analysis of <jboss/wildfly>"
@@ -404,21 +412,45 @@ The expected output for the previous command will be the next one. In this outpu
 ```
 
 
-If you want review a concrete docker analysis, you must type:
+Also, if you want run a static analysis in a remote way, you can use the [*agent* sub-command](https://github.com/eliasgranderubio/dagda/wiki/CLI-Usage#agent-sub-command):
+```bash
+    python3 dagda.py agent localhost:5000 -i jboss/wildfly
 ```
+
+The expected output for the previous command will be the next one. In this output, **Dagda** responses with the analysis `id`.
+```json
+    {
+        "id": "58667994ed253915723c50e7",
+        "image_name": "jboss/wildfly"
+    }
+```
+
+
+If you want review a concrete docker analysis, you must type:
+```bash
     python3 dagda.py history <DOCKER_IMAGE_NAME_HERE> --id <REPORT_ID_HERE>
 ```
 For more details about `dagda.py history`, type `python3 dagda.py history --help` or see the [*history* sub-command](https://github.com/eliasgranderubio/dagda/wiki/CLI-Usage#history-sub-command) in the wiki page.
 
 
 The analysis can take several minutes for finishing, so be patient. If you typed the previous command, when you type `python3 dagda.py history jboss/wildfly --id 58667994ed253915723c50e7`, the expected output looks like as shown below.
-```
+```json
     {
         "id": "58667994ed253915723c50e7",
         "image_name": "jboss/wildfly",
         "status": "Completed",
         "timestamp": "2016-12-14 13:17:12.802486",
         "static_analysis": {
+            "malware_binaries": [
+                {
+                    "file": "/tmp/test/removal-tool.exe",
+                    "malware": "Worm.Sober"
+                },
+                {
+                    "file": "/tmp/test/error.hta",
+                    "malware": "VBS.Inor.D"
+                }
+            ],
             "os_packages": {
                 "total_os_packages": 182,
                 "vuln_os_packages": 41,
@@ -428,12 +460,14 @@ The analysis can take several minutes for finishing, so be patient. If you typed
                         "product": "sed",
                         "version": "4.2.2",
                         "is_vulnerable": false,
+                        "is_false_positive": false,
                         "vulnerabilities": []
                     },
                     {
                         "product": "grep",
                         "version": "2.20",
                         "is_vulnerable": true,
+                        "is_false_positive": false,
                         "vulnerabilities": [
                             {
                                 "CVE-2015-1345": {
@@ -464,9 +498,10 @@ The analysis can take several minutes for finishing, so be patient. If you typed
                         ]
                     },
                     {
-                        "is_vulnerable": true,
                         "product": "lua",
                         "version": "5.1.4",
+                        "is_vulnerable": true,
+                        "is_false_positive": false,
                         "vulnerabilities": [
                             {
                                 "CVE-2014-5461": {
@@ -508,9 +543,10 @@ The analysis can take several minutes for finishing, so be patient. If you typed
                     },
                     [...]
                     , {
-                        "is_vulnerable": false,
                         "product": "sqlite",
                         "version": "3.7.17",
+                        "is_vulnerable": false,
+                        "is_false_positive": false,
                         "vulnerabilities": []
                     }
                 ]
@@ -522,6 +558,9 @@ The analysis can take several minutes for finishing, so be patient. If you typed
                         {
                             "product": "xalan-java",
                             "version": "2.5.2",
+                            "product_file_path": "/opt/jboss/java/xalan.2.5.2.jar",
+                            "is_vulnerable": true,
+                            "is_false_positive": false,
                             "vulnerabilities": [
                                 {
                                     "CVE-2014-0107": {
@@ -566,6 +605,9 @@ The analysis can take several minutes for finishing, so be patient. If you typed
                         {
                             "product": "jboss_wildfly_application_server",
                             "version": "-",
+                            "product_file_path": "/opt/jboss/java/jboss_wildfly_application_server.jar",
+                            "is_vulnerable": true,
+                            "is_false_positive": false,
                             "vulnerabilities": [
                                 {
                                     "CVE-2014-0018": {
@@ -599,6 +641,9 @@ The analysis can take several minutes for finishing, so be patient. If you typed
                         , {
                             "product": "jboss_weld",
                             "version": "3.0.0",
+                            "product_file_path": "/opt/jboss/java/jboss_weld.3.0.0.jar",
+                            "is_vulnerable": true,
+                            "is_false_positive": false,
                             "vulnerabilities": [
                                 {
                                     "CVE-2014-8122": {
@@ -636,6 +681,9 @@ The analysis can take several minutes for finishing, so be patient. If you typed
                         {
                             "product": "lxml",
                             "version": "1.0.1",
+                            "product_file_path": "/opt/jboss/python/lxml.1.0.1.py",
+                            "is_vulnerable": true,
+                            "is_false_positive": false,
                             "vulnerabilities": [
                                 {
                                     "CVE-2014-3146": {
@@ -675,14 +723,14 @@ The analysis can take several minutes for finishing, so be patient. If you typed
 
 #### Monitoring running containers for detecting anomalous activities
 Another of the main **Dagda** targets is perform the monitoring of running docker containers for detecting anomalous activities, so if you want perform the monitoring over a running docker container, you must type:
-```
+```bash
     python3 dagda.py monitor 69dbf26ab368 --start
 ```
 See the [*monitor* sub-command](https://github.com/eliasgranderubio/dagda/wiki/CLI-Usage#monitor-sub-command) wiki page for details.
 
 
 The expected output looks like as shown below:
-```
+```json
     {
         "id": "586f7631ed25396a829baaf4",
         "image_name": "jboss/wildfly",
@@ -691,12 +739,12 @@ The expected output looks like as shown below:
 ```
 
 You can stop the monitoring when you want if you type:
-```
+```bash
     python3 dagda.py monitor 69dbf26ab368 --stop
 ```
 
 The expected output when you stop the monitoring over a running container looks like as shown below:
-```
+```json
   {
       "id": "586f7631ed25396a829baaf4",
       "image_name": "jboss/wildfly",
@@ -734,9 +782,9 @@ This section describes the installation of **Dagda** using Docker containers, in
 
 Execute the following commands in the root folder of **Dagda** and then, the **Dagda** server will start listening at port 5000:
 
-```
-    $ docker-compose build
-    $ docker-compose run --service-ports dagda
+```bash
+    docker-compose build
+    docker-compose up -d
 ```
 
 ## Troubleshooting
@@ -749,3 +797,7 @@ See the [Change Log](https://github.com/eliasgranderubio/dagda/wiki/Change-Log) 
 
 ## Bugs and Feedback
 For bugs, questions and discussions please use the [Github Issues](https://github.com/eliasgranderubio/dagda/issues) or ping me on Twitter (@3grander).
+
+
+## License
+[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Feliasgranderubio%2Fdagda.svg?type=large)](https://app.fossa.io/projects/git%2Bgithub.com%2Feliasgranderubio%2Fdagda?ref=badge_large)
